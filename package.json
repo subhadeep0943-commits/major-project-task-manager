@@ -1,0 +1,9 @@
+{
+  "name": "taskflow",
+  "version": "1.0.0",
+  "description": "TaskFlow - A full-stack MERN task management application",
+  "private": true,
+  "devDependencies": {
+    "vite": "^5.4.21"
+  }
+}
