@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
-import './App.css';
+import './index.css';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
@@ -34,6 +34,95 @@ function ConfirmModal({ message, onConfirm, onCancel }) {
             Delete
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Edit Modal ───────────────────────────────────────────────────
+function EditModal({ task, onSave, onCancel }) {
+  const [title, setTitle] = useState(task.title || '');
+  const [description, setDescription] = useState(task.description || '');
+  const [status, setStatus] = useState(task.status || 'pending');
+  const [priority, setPriority] = useState(task.priority || 'medium');
+  const [dueDate, setDueDate] = useState(task.dueDate ? task.dueDate.substring(0, 10) : '');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSave(task._id, { title, description, status, priority, dueDate: dueDate || null });
+  };
+
+  return (
+    <div className="confirm-overlay" onClick={onCancel}>
+      <div className="confirm-modal edit-modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Edit Task</h3>
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label htmlFor="edit-title">Title</label>
+            <input
+              id="edit-title"
+              className="form-input"
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="edit-desc">Description</label>
+            <input
+              id="edit-desc"
+              className="form-input"
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="edit-priority">Priority</label>
+            <select
+              id="edit-priority"
+              className="form-input status-select"
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label htmlFor="edit-status">Status</label>
+            <select
+              id="edit-status"
+              className="form-input status-select"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              <option value="pending">Pending</option>
+              <option value="in-progress">In Progress</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label htmlFor="edit-due">Due Date</label>
+            <input
+              id="edit-due"
+              className="form-input"
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+            />
+          </div>
+          <div className="edit-actions">
+            <button type="button" className="btn btn-secondary" onClick={onCancel}>
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary">
+              Save Changes
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -114,10 +203,28 @@ function AuthPage({ initialMode, onAuth, onBack }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  const getErrors = () => {
+    const errs = {};
+    if (!isLogin && name.length < 2) errs.name = 'Name must be at least 2 characters';
+    if (email && !emailRegex.test(email)) errs.email = 'Invalid email format';
+    if (password && password.length < 6) errs.password = 'Password must be at least 6 characters';
+    return errs;
+  };
+
+  const validationErrors = hasSubmitted ? getErrors() : {};
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setHasSubmitted(true);
     setError('');
+
+    const currentErrors = getErrors();
+    if (Object.keys(currentErrors).length > 0) return;
+
     setLoading(true);
 
     const endpoint = isLogin ? 'login' : 'register';
@@ -129,11 +236,11 @@ function AuthPage({ initialMode, onAuth, onBack }) {
       if (token) {
         onAuth(token, userName);
       } else {
-        // Fallback: registration didn't return token, switch to login
         setIsLogin(true);
         setError('');
         setName('');
         setPassword('');
+        setHasSubmitted(false);
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Something went wrong. Please try again.');
@@ -148,6 +255,7 @@ function AuthPage({ initialMode, onAuth, onBack }) {
     setName('');
     setEmail('');
     setPassword('');
+    setHasSubmitted(false);
   };
 
   return (
@@ -161,45 +269,44 @@ function AuthPage({ initialMode, onAuth, onBack }) {
 
         {error && <div className="auth-error">{error}</div>}
 
-        <form className="auth-form" onSubmit={handleSubmit}>
+        <form className="auth-form" onSubmit={handleSubmit} noValidate>
           {!isLogin && (
             <div className="form-group">
               <label htmlFor="auth-name">Full Name</label>
               <input
                 id="auth-name"
-                className="form-input"
+                className={`form-input ${validationErrors.name ? 'error' : ''}`}
                 type="text"
                 placeholder="John Doe"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                required
               />
+              {validationErrors.name && <div className="field-error">{validationErrors.name}</div>}
             </div>
           )}
           <div className="form-group">
             <label htmlFor="auth-email">Email Address</label>
             <input
               id="auth-email"
-              className="form-input"
+              className={`form-input ${validationErrors.email ? 'error' : ''}`}
               type="email"
               placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
             />
+            {validationErrors.email && <div className="field-error">{validationErrors.email}</div>}
           </div>
           <div className="form-group">
             <label htmlFor="auth-password">Password</label>
             <input
               id="auth-password"
-              className="form-input"
+              className={`form-input ${validationErrors.password ? 'error' : ''}`}
               type="password"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={6}
             />
+            {validationErrors.password && <div className="field-error">{validationErrors.password}</div>}
           </div>
           <button
             type="submit"
@@ -207,7 +314,7 @@ function AuthPage({ initialMode, onAuth, onBack }) {
             disabled={loading}
             style={{ width: '100%', padding: '0.85rem' }}
           >
-            {loading ? '...' : isLogin ? 'Sign In' : 'Create Account'}
+            {loading ? <span className="spinner">⟳</span> : (isLogin ? 'Sign In' : 'Create Account')}
           </button>
         </form>
 
@@ -228,9 +335,17 @@ function Dashboard({ token, userName, onLogout, showToast }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState('pending');
+  const [priority, setPriority] = useState('medium');
   const [dueDate, setDueDate] = useState('');
   const [loading, setLoading] = useState(true);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [clearConfirm, setClearConfirm] = useState(false);
+  const [editTask, setEditTask] = useState(null);
+
+  // Filter & Sort
+  const [filterTab, setFilterTab] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortMode, setSortMode] = useState('newest');
 
   const authHeaders = useCallback(() => ({
     headers: { Authorization: `Bearer ${token}` }
@@ -257,17 +372,38 @@ function Dashboard({ token, userName, onLogout, showToast }) {
     e.preventDefault();
     if (!title.trim()) return;
     try {
-      const taskData = { title, description, status };
+      const taskData = { title, description, status, priority };
       if (dueDate) taskData.dueDate = dueDate;
       await axios.post(`${API}/tasks`, taskData, authHeaders());
       setTitle('');
       setDescription('');
       setStatus('pending');
+      setPriority('medium');
       setDueDate('');
       fetchTasks();
       showToast('Task created successfully!', 'success');
     } catch (error) {
       showToast(error.response?.data?.message || 'Failed to create task', 'error');
+    }
+  };
+
+  const updateTask = async (taskId, updates) => {
+    try {
+      await axios.put(`${API}/tasks/${taskId}`, updates, authHeaders());
+      fetchTasks();
+      showToast('Task updated', 'success');
+      setEditTask(null);
+    } catch (error) {
+      showToast('Failed to update task', 'error');
+    }
+  };
+
+  const toggleTaskCompletion = async (taskId) => {
+    try {
+      await axios.put(`${API}/tasks/${taskId}/toggle`, {}, authHeaders());
+      fetchTasks();
+    } catch (error) {
+      showToast('Failed to toggle task', 'error');
     }
   };
 
@@ -291,6 +427,17 @@ function Dashboard({ token, userName, onLogout, showToast }) {
     }
   };
 
+  const clearCompleted = async () => {
+    try {
+      await axios.delete(`${API}/tasks/completed`, authHeaders());
+      fetchTasks();
+      showToast('Completed tasks cleared', 'success');
+      setClearConfirm(false);
+    } catch (error) {
+      showToast('Failed to clear tasks', 'error');
+    }
+  };
+
   const handleDeleteClick = (taskId, taskTitle) => {
     setDeleteConfirm({ id: taskId, title: taskTitle });
   };
@@ -304,11 +451,16 @@ function Dashboard({ token, userName, onLogout, showToast }) {
 
   const statusCycle = { pending: 'in-progress', 'in-progress': 'completed', completed: 'pending' };
 
+  // Calculate stats
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   const stats = {
     total: tasks.length,
     pending: tasks.filter(t => t.status === 'pending').length,
     inProgress: tasks.filter(t => t.status === 'in-progress').length,
-    completed: tasks.filter(t => t.status === 'completed').length,
+    completed: tasks.filter(t => t.status === 'completed' || t.completed).length,
+    overdue: tasks.filter(t => t.dueDate && new Date(t.dueDate) < today && t.status !== 'completed' && !t.completed).length,
   };
 
   const formatDate = (dateStr) => {
@@ -324,6 +476,41 @@ function Dashboard({ token, userName, onLogout, showToast }) {
     if (diffDays < 7) return `${diffDays}d ago`;
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
+
+  const displayedTasks = useMemo(() => {
+    let result = tasks;
+
+    if (filterTab !== 'all') {
+      if (filterTab === 'completed') {
+        result = result.filter(t => t.status === 'completed' || t.completed);
+      } else {
+        result = result.filter(t => t.status === filterTab && !t.completed);
+      }
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(t => 
+        t.title.toLowerCase().includes(q) || 
+        (t.description && t.description.toLowerCase().includes(q))
+      );
+    }
+
+    return [...result].sort((a, b) => {
+      if (sortMode === 'newest') return new Date(b.createdAt) - new Date(a.createdAt);
+      if (sortMode === 'oldest') return new Date(a.createdAt) - new Date(b.createdAt);
+      if (sortMode === 'priority') {
+        const p = { high: 3, medium: 2, low: 1 };
+        return (p[b.priority] || 0) - (p[a.priority] || 0);
+      }
+      if (sortMode === 'due-date') {
+        if (!a.dueDate) return 1;
+        if (!b.dueDate) return -1;
+        return new Date(a.dueDate) - new Date(b.dueDate);
+      }
+      return 0;
+    });
+  }, [tasks, filterTab, searchQuery, sortMode]);
 
   return (
     <div className="dashboard">
@@ -360,6 +547,10 @@ function Dashboard({ token, userName, onLogout, showToast }) {
             <div className="stat-value green">{stats.completed}</div>
             <div className="stat-label">Completed</div>
           </div>
+          <div className="stat-card">
+            <div className="stat-value red">{stats.overdue}</div>
+            <div className="stat-label">Overdue</div>
+          </div>
         </div>
 
         {/* Add Task */}
@@ -389,6 +580,19 @@ function Dashboard({ token, userName, onLogout, showToast }) {
               />
             </div>
             <div className="form-group small">
+              <label htmlFor="task-priority">Priority</label>
+              <select
+                id="task-priority"
+                className="form-input status-select"
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+            <div className="form-group small">
               <label htmlFor="task-due">Due Date</label>
               <input
                 id="task-due"
@@ -398,78 +602,133 @@ function Dashboard({ token, userName, onLogout, showToast }) {
                 onChange={(e) => setDueDate(e.target.value)}
               />
             </div>
-            <div className="form-group small">
-              <label htmlFor="task-status">Status</label>
-              <select
-                id="task-status"
-                className="form-input status-select"
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-              >
-                <option value="pending">Pending</option>
-                <option value="in-progress">In Progress</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
             <button type="submit" className="btn btn-primary">
               + Add
             </button>
           </form>
         </div>
 
+        {/* Toolbar: Filter, Search, Sort */}
+        <div className="toolbar">
+          <div className="filter-tabs">
+            {['all', 'pending', 'in-progress', 'completed'].map(tab => (
+              <button
+                key={tab}
+                className={`filter-tab ${filterTab === tab ? 'active' : ''}`}
+                onClick={() => setFilterTab(tab)}
+              >
+                {tab === 'all' ? 'All' : tab === 'in-progress' ? 'In Progress' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          <div className="search-wrapper">
+            <span className="search-icon">🔍</span>
+            <input
+              type="text"
+              className="search-input"
+              placeholder="Search tasks..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button className="search-clear" onClick={() => setSearchQuery('')}>✕</button>
+            )}
+          </div>
+
+          <select
+            className="sort-select"
+            value={sortMode}
+            onChange={(e) => setSortMode(e.target.value)}
+          >
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="priority">Priority (High→Low)</option>
+            <option value="due-date">Due Date (Soonest)</option>
+          </select>
+        </div>
+
         {/* Task List */}
         <div className="task-list-section">
           <div className="task-list-header">
             <h2>Your Tasks</h2>
-            <span className="task-count">{tasks.length} task{tasks.length !== 1 ? 's' : ''}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <span className="task-count">{displayedTasks.length} task{displayedTasks.length !== 1 ? 's' : ''}</span>
+              {stats.completed > 0 && (
+                <button className="btn btn-sm btn-clear-completed" onClick={() => setClearConfirm(true)}>
+                  Clear Completed
+                </button>
+              )}
+            </div>
           </div>
 
           {loading ? (
-            <div className="empty-state">
-              <div className="empty-state-icon">⏳</div>
-              <h3>Loading tasks...</h3>
+            <div className="skeleton-list">
+              {[1, 2, 3].map(i => <div key={i} className="skeleton-card" />)}
             </div>
-          ) : tasks.length === 0 ? (
+          ) : displayedTasks.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">🎯</div>
-              <h3>No tasks yet</h3>
-              <p>Create your first task above to get started!</p>
+              <h3>No tasks found</h3>
+              <p>{tasks.length === 0 ? 'Create your first task above to get started!' : 'Try adjusting your filters or search query.'}</p>
             </div>
           ) : (
             <div className="task-list">
-              {tasks.map((task) => (
-                <div className="task-card" key={task._id}>
-                  <div className="task-info">
-                    <div className="task-title">{task.title}</div>
-                    {task.description && (
-                      <div className="task-desc">{task.description}</div>
-                    )}
-                    <div className="task-meta">
-                      <span>Created {formatDate(task.createdAt)}</span>
-                      {task.dueDate && (
-                        <span>• Due {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+              {displayedTasks.map((task) => {
+                const isCompleted = task.status === 'completed' || task.completed;
+                return (
+                  <div className={`task-card ${isCompleted ? 'completed-task' : ''}`} key={task._id}>
+                    <button
+                      className={`task-checkbox ${isCompleted ? 'checked' : ''}`}
+                      onClick={() => toggleTaskCompletion(task._id)}
+                      aria-label="Toggle completion"
+                    >
+                      {isCompleted ? '✓' : ''}
+                    </button>
+                    <div className="task-info">
+                      <div className="task-title">{task.title}</div>
+                      {task.description && (
+                        <div className="task-desc">{task.description}</div>
                       )}
+                      <div className="task-meta">
+                        {task.priority && (
+                          <span className={`priority-badge ${task.priority.toLowerCase()}`}>
+                            {task.priority === 'low' ? '🟢' : task.priority === 'medium' ? '🟡' : '🔴'} {task.priority}
+                          </span>
+                        )}
+                        <span>Created {formatDate(task.createdAt)}</span>
+                        {task.dueDate && (
+                          <span>• Due {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="task-actions">
+                      <button
+                        className="btn btn-secondary btn-icon btn-sm"
+                        onClick={() => setEditTask(task)}
+                        title="Edit task"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        className={`status-badge ${task.status}`}
+                        onClick={() => updateTaskStatus(task._id, statusCycle[task.status])}
+                        title={`Click to change to ${statusCycle[task.status]}`}
+                      >
+                        <span className="status-dot" />
+                        {task.status === 'in-progress' ? 'In Progress' : task.status}
+                      </button>
+                      <button
+                        className="btn btn-danger btn-icon btn-sm"
+                        onClick={() => handleDeleteClick(task._id, task.title)}
+                        title="Delete task"
+                      >
+                        ✕
+                      </button>
                     </div>
                   </div>
-                  <div className="task-actions">
-                    <button
-                      className={`status-badge ${task.status}`}
-                      onClick={() => updateTaskStatus(task._id, statusCycle[task.status])}
-                      title={`Click to change to ${statusCycle[task.status]}`}
-                    >
-                      <span className="status-dot" />
-                      {task.status === 'in-progress' ? 'In Progress' : task.status}
-                    </button>
-                    <button
-                      className="btn btn-danger btn-icon btn-sm"
-                      onClick={() => handleDeleteClick(task._id, task.title)}
-                      title="Delete task"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -481,6 +740,24 @@ function Dashboard({ token, userName, onLogout, showToast }) {
           message={`This will permanently delete "${deleteConfirm.title}". This action cannot be undone.`}
           onConfirm={confirmDelete}
           onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+
+      {/* Clear Completed Confirmation Modal */}
+      {clearConfirm && (
+        <ConfirmModal
+          message={`This will permanently delete all completed tasks. This action cannot be undone.`}
+          onConfirm={clearCompleted}
+          onCancel={() => setClearConfirm(false)}
+        />
+      )}
+
+      {/* Edit Modal */}
+      {editTask && (
+        <EditModal
+          task={editTask}
+          onSave={updateTask}
+          onCancel={() => setEditTask(null)}
         />
       )}
     </div>

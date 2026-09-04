@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const cors = require('cors');
+const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 
 dotenv.config();
 
@@ -11,22 +12,8 @@ const app = express();
 app.use(express.json());
 
 // CORS Configuration - allow frontend origin
-const allowedOrigins = [
-    process.env.CLIENT_URL,
-    'http://localhost:5173',
-    'http://localhost:3000'
-].filter(Boolean);
-
 app.use(cors({
-    origin: function (origin, callback) {
-        // Allow requests with no origin (mobile apps, curl, etc.)
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.indexOf(origin) !== -1) {
-            callback(null, true);
-        } else {
-            callback(null, true); // Allow all in development; restrict in production if needed
-        }
-    },
+    origin: 'https://major-project-task-manager.vercel.app',
     credentials: true
 }));
 
@@ -42,15 +29,10 @@ app.get('/', (req, res) => {
 });
 
 // 404 handler for undefined routes
-app.use((req, res) => {
-    res.status(404).json({ message: 'Route not found' });
-});
+app.use(notFound);
 
 // Global error handler
-app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(500).json({ message: 'Internal server error' });
-});
+app.use(errorHandler);
 
 // Database Connection & Server Start
 const PORT = process.env.PORT || 5000;
