@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import axios from 'axios';
+import { authAPI, taskAPI, setLogoutHandler } from './api';
 import './index.css';
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 // ─── Toast Component ──────────────────────────────────────────────
 function Toast({ message, type, onDone }) {
@@ -227,11 +225,11 @@ function AuthPage({ initialMode, onAuth, onBack }) {
 
     setLoading(true);
 
-    const endpoint = isLogin ? 'login' : 'register';
-    const payload = isLogin ? { email, password } : { name, email, password };
-
     try {
-      const response = await axios.post(`${API}/users/${endpoint}`, payload);
+      const response = isLogin
+        ? await authAPI.login(email, password)
+        : await authAPI.register(name, email, password);
+
       const { token, name: userName } = response.data;
       if (token) {
         onAuth(token, userName);
@@ -330,7 +328,7 @@ function AuthPage({ initialMode, onAuth, onBack }) {
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────
-function Dashboard({ token, userName, onLogout, showToast }) {
+function Dashboard({ userName, onLogout, showToast }) {
   const [tasks, setTasks] = useState([]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -347,34 +345,33 @@ function Dashboard({ token, userName, onLogout, showToast }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortMode, setSortMode] = useState('newest');
 
-  const authHeaders = useCallback(() => ({
-    headers: { Authorization: `Bearer ${token}` }
-  }), [token]);
-
+  // Fetch all tasks — uses taskAPI (token auto-attached by interceptor)
   const fetchTasks = useCallback(async () => {
     try {
-      const response = await axios.get(`${API}/tasks`, authHeaders());
+      const response = await taskAPI.getAll();
       setTasks(response.data);
     } catch (error) {
-      if (error.response?.status === 401) {
-        onLogout();
+      // 401 is auto-handled by the response interceptor → triggers logout
+      if (error.response?.status !== 401) {
+        showToast('Failed to load tasks', 'error');
       }
     } finally {
       setLoading(false);
     }
-  }, [authHeaders, onLogout]);
+  }, [showToast]);
 
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
 
+  // Create task — maps Title, Description, Priority, Due Date, Status
   const addTask = async (e) => {
     e.preventDefault();
     if (!title.trim()) return;
     try {
       const taskData = { title, description, status, priority };
       if (dueDate) taskData.dueDate = dueDate;
-      await axios.post(`${API}/tasks`, taskData, authHeaders());
+      await taskAPI.create(taskData);
       setTitle('');
       setDescription('');
       setStatus('pending');
@@ -387,9 +384,10 @@ function Dashboard({ token, userName, onLogout, showToast }) {
     }
   };
 
+  // Update task — maps payload attributes
   const updateTask = async (taskId, updates) => {
     try {
-      await axios.put(`${API}/tasks/${taskId}`, updates, authHeaders());
+      await taskAPI.update(taskId, updates);
       fetchTasks();
       showToast('Task updated', 'success');
       setEditTask(null);
@@ -398,18 +396,20 @@ function Dashboard({ token, userName, onLogout, showToast }) {
     }
   };
 
+  // Toggle completion — flips completed boolean + status
   const toggleTaskCompletion = async (taskId) => {
     try {
-      await axios.put(`${API}/tasks/${taskId}/toggle`, {}, authHeaders());
+      await taskAPI.toggleCompletion(taskId);
       fetchTasks();
     } catch (error) {
       showToast('Failed to toggle task', 'error');
     }
   };
 
+  // Cycle status badge (Pending → In Progress → Completed)
   const updateTaskStatus = async (taskId, newStatus) => {
     try {
-      await axios.put(`${API}/tasks/${taskId}`, { status: newStatus }, authHeaders());
+      await taskAPI.update(taskId, { status: newStatus });
       fetchTasks();
       showToast(`Task marked as ${newStatus}`, 'success');
     } catch (error) {
@@ -417,9 +417,10 @@ function Dashboard({ token, userName, onLogout, showToast }) {
     }
   };
 
+  // Delete single task
   const deleteTask = async (taskId) => {
     try {
-      await axios.delete(`${API}/tasks/${taskId}`, authHeaders());
+      await taskAPI.delete(taskId);
       fetchTasks();
       showToast('Task deleted', 'success');
     } catch (error) {
@@ -427,9 +428,10 @@ function Dashboard({ token, userName, onLogout, showToast }) {
     }
   };
 
+  // Bulk delete completed tasks
   const clearCompleted = async () => {
     try {
-      await axios.delete(`${API}/tasks/completed`, authHeaders());
+      await taskAPI.deleteCompleted();
       fetchTasks();
       showToast('Completed tasks cleared', 'success');
       setClearConfirm(false);
@@ -451,7 +453,7 @@ function Dashboard({ token, userName, onLogout, showToast }) {
 
   const statusCycle = { pending: 'in-progress', 'in-progress': 'completed', completed: 'pending' };
 
-  // Calculate stats
+  // ─── Real-time Statistics Dashboard ─────────────────────────────
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -463,6 +465,7 @@ function Dashboard({ token, userName, onLogout, showToast }) {
     overdue: tasks.filter(t => t.dueDate && new Date(t.dueDate) < today && t.status !== 'completed' && !t.completed).length,
   };
 
+  // ─── Relative time formatter ───────────────────────────────────
   const formatDate = (dateStr) => {
     const d = new Date(dateStr);
     const now = new Date();
@@ -477,9 +480,11 @@ function Dashboard({ token, userName, onLogout, showToast }) {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
+  // ─── Advanced Queries: Filter / Search / Sort (client-side) ────
   const displayedTasks = useMemo(() => {
     let result = tasks;
 
+    // Filter by status tab
     if (filterTab !== 'all') {
       if (filterTab === 'completed') {
         result = result.filter(t => t.status === 'completed' || t.completed);
@@ -488,14 +493,16 @@ function Dashboard({ token, userName, onLogout, showToast }) {
       }
     }
 
+    // Search by title or description
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(t => 
-        t.title.toLowerCase().includes(q) || 
+      result = result.filter(t =>
+        t.title.toLowerCase().includes(q) ||
         (t.description && t.description.toLowerCase().includes(q))
       );
     }
 
+    // Sort by selected mode
     return [...result].sort((a, b) => {
       if (sortMode === 'newest') return new Date(b.createdAt) - new Date(a.createdAt);
       if (sortMode === 'oldest') return new Date(a.createdAt) - new Date(b.createdAt);
@@ -529,7 +536,7 @@ function Dashboard({ token, userName, onLogout, showToast }) {
       </header>
 
       <main className="dash-content">
-        {/* Stats */}
+        {/* ── Statistics Dashboard Widget ─────────────────────────── */}
         <div className="stats-bar">
           <div className="stat-card">
             <div className="stat-value purple">{stats.total}</div>
@@ -553,7 +560,7 @@ function Dashboard({ token, userName, onLogout, showToast }) {
           </div>
         </div>
 
-        {/* Add Task */}
+        {/* ── Add Task Form ──────────────────────────────────────── */}
         <div className="add-task-section">
           <form className="add-task-form" onSubmit={addTask}>
             <div className="form-group">
@@ -608,7 +615,7 @@ function Dashboard({ token, userName, onLogout, showToast }) {
           </form>
         </div>
 
-        {/* Toolbar: Filter, Search, Sort */}
+        {/* ── Toolbar: Filter / Search / Sort ─────────────────────── */}
         <div className="toolbar">
           <div className="filter-tabs">
             {['all', 'pending', 'in-progress', 'completed'].map(tab => (
@@ -648,7 +655,7 @@ function Dashboard({ token, userName, onLogout, showToast }) {
           </select>
         </div>
 
-        {/* Task List */}
+        {/* ── Task List ──────────────────────────────────────────── */}
         <div className="task-list-section">
           <div className="task-list-header">
             <h2>Your Tasks</h2>
@@ -786,6 +793,7 @@ function App() {
     setPage('dashboard');
   };
 
+  // Logout — destroys token from localStorage (client-side token removal)
   const handleLogout = useCallback(() => {
     setToken('');
     setUserName('');
@@ -793,6 +801,11 @@ function App() {
     localStorage.removeItem('userName');
     setPage('landing');
   }, []);
+
+  // Register the logout handler with the Axios interceptor so 401s auto-logout
+  useEffect(() => {
+    setLogoutHandler(handleLogout);
+  }, [handleLogout]);
 
   const handleGetStarted = (mode) => {
     setAuthMode(mode);
@@ -817,7 +830,6 @@ function App() {
 
       {page === 'dashboard' && (
         <Dashboard
-          token={token}
           userName={userName}
           onLogout={handleLogout}
           showToast={showToast}
